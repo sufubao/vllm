@@ -120,6 +120,8 @@ class LazyConfigDict(dict):
 
 
 _CONFIG_REGISTRY: dict[str, type[PreTrainedConfig]] = LazyConfigDict(
+    qwen3_5_loop="Qwen3_5LoopConfig",
+    sensenova_loop="SenseNovaLoopConfig",
     alpamayo2_super="Alpamayo2SuperConfig",
     bagel="BagelConfig",
     bailing_moe_v3_vl="BailingMoeV3VLConfig",

@@ -14,6 +14,8 @@ from __future__ import annotations
 import importlib
 
 _CLASS_TO_MODULE: dict[str, str] = {
+    "Qwen3_5LoopConfig": "vllm.transformers_utils.configs.qwen3_5_loop",
+    "SenseNovaLoopConfig": "vllm.transformers_utils.configs.qwen3_5_loop",
     "Alpamayo2SuperConfig": "vllm.transformers_utils.configs.alpamayo2_super",
     "BagelConfig": "vllm.transformers_utils.configs.bagel",
     "BailingMoeV3TextConfig": "vllm.transformers_utils.configs.bailing_moe_v3_vl",
