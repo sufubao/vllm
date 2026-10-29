@@ -4,7 +4,7 @@ import torch
 import torch.nn.functional as F
 from torch import Tensor
 
-from vllm.triton_utils import tl, triton
+from vllm.triton_utils import tl, tldevice, triton
 from vllm.utils.torch_utils import direct_register_custom_op
 
 
@@ -139,6 +139,54 @@ def hc_collapse_triton(x: Tensor, pre_mix: Tensor) -> Tensor:
 
 def _hc_collapse_triton_fake(x: Tensor, pre_mix: Tensor) -> Tensor:
     return torch.empty(x.shape[0], x.shape[2], dtype=x.dtype, device=x.device)
+
+
+@triton.jit
+def _mhc_log_sinkhorn_kernel(
+    logits,
+    output,
+    stride_t: tl.constexpr,
+    streams: tl.constexpr,
+    iterations: tl.constexpr,
+):
+    token = tl.program_id(0).to(tl.int64)
+    row = tl.arange(0, streams)
+    col = tl.arange(0, streams)
+    offsets = row[:, None] * streams + col[None, :]
+    mix = tl.load(logits + token * stride_t + offsets)
+    for _ in range(iterations):
+        maximum = tl.max(mix, 1)
+        normalizer = maximum + tldevice.log(
+            tl.sum(tldevice.exp(mix - maximum[:, None]), 1)
+        )
+        mix = mix - normalizer[:, None]
+        maximum = tl.max(mix, 0)
+        normalizer = maximum + tldevice.log(
+            tl.sum(tldevice.exp(mix - maximum[None, :]), 0)
+        )
+        mix = mix - normalizer[None, :]
+    tl.store(output + token * streams * streams + offsets, tldevice.exp(mix))
+
+
+def mhc_log_sinkhorn_triton(logits: Tensor, iterations: int) -> Tensor:
+    """Normalize FP32 mHC logits by alternating log-space row/column sums."""
+    assert logits.ndim == 3 and logits.dtype == torch.float32
+    tokens, streams, columns = logits.shape
+    assert streams in (2, 4) and columns == streams
+    assert logits.stride(-1) == 1 and logits.stride(-2) == streams
+    assert iterations > 0
+    output = torch.empty(logits.shape, device=logits.device, dtype=logits.dtype)
+    if tokens:
+        _mhc_log_sinkhorn_kernel[(tokens,)](
+            logits,
+            output,
+            logits.stride(0),
+            streams,
+            iterations,
+            num_warps=1,
+            enable_fp_fusion=False,
+        )
+    return output
 
 
 @triton.jit

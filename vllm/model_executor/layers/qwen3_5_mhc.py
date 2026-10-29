@@ -35,11 +35,24 @@ class MHCRouter(nn.Module):
             mix = torch.eye(s, device=flat.device, dtype=torch.float32)
         else:
             mix = logits[..., 2 * s :].unflatten(-1, (s, s))
-            for _ in range(self.iterations):
-                mix = mix - mix.logsumexp(-1, keepdim=True)
-                mix = mix - mix.logsumexp(-2, keepdim=True)
-            mix = mix.exp()
-        branch = (pre.to(residual.dtype).unsqueeze(-2) @ residual).squeeze(-2)
+            if residual.is_cuda:
+                from vllm.model_executor.kernels.mhc.triton import (
+                    mhc_log_sinkhorn_triton,
+                )
+
+                mix = mhc_log_sinkhorn_triton(mix, self.iterations)
+            else:
+                for _ in range(self.iterations):
+                    mix = mix - mix.logsumexp(-1, keepdim=True)
+                    mix = mix - mix.logsumexp(-2, keepdim=True)
+                mix = mix.exp()
+        if residual.is_cuda and residual.dtype == torch.bfloat16:
+            from vllm.model_executor.kernels.mhc.triton import hc_collapse_triton
+
+            # The checkpoint rounds coefficients before stream reduction.
+            branch = hc_collapse_triton(residual, pre.to(residual.dtype).float())
+        else:
+            branch = (pre.to(residual.dtype).unsqueeze(-2) @ residual).squeeze(-2)
         return branch * self.pre_scale, post, mix
 
     @staticmethod

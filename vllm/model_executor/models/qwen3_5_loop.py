@@ -138,11 +138,10 @@ class Qwen3_5LoopForConditionalGeneration(
             or vllm_config.quant_config is not None
             or vllm_config.speculative_config is not None
             or vllm_config.lora_config is not None
-            or not self.model_config.enforce_eager
             or getattr(self.config, "layer_scale", False)
         ):
             raise ValueError(
-                "Qwen3.5 Loop currently requires eager, unquantized text inference "
+                "Qwen3.5 Loop currently requires unquantized text inference "
                 "without pipeline parallelism, LoRA, speculation or layer_scale"
             )
         self.quant_config = None
