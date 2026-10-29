@@ -9,7 +9,7 @@ import torch
 import torch.nn.functional as F
 from flashinfer.testing import bench_gpu_time_with_cupti
 
-from vllm.model_executor.kernels.mhc.triton import (
+from vllm.model_executor.kernels.mhc.qwen3_5 import (
     mhc_merge_triton,
     mhc_project_triton,
     mhc_rmsnorm_triton,

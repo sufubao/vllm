@@ -13,7 +13,7 @@ import time
 import torch
 from flashinfer.testing import bench_gpu_time_with_cupti
 
-from vllm.model_executor.kernels.mhc.triton import mhc_log_sinkhorn_triton
+from vllm.model_executor.kernels.mhc.qwen3_5 import mhc_log_sinkhorn_triton
 
 
 def reference(mix):

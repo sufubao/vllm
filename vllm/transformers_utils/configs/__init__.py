@@ -14,8 +14,6 @@ from __future__ import annotations
 import importlib
 
 _CLASS_TO_MODULE: dict[str, str] = {
-    "Qwen3_5LoopConfig": "vllm.transformers_utils.configs.qwen3_5_loop",
-    "SenseNovaLoopConfig": "vllm.transformers_utils.configs.qwen3_5_loop",
     "Alpamayo2SuperConfig": "vllm.transformers_utils.configs.alpamayo2_super",
     "BagelConfig": "vllm.transformers_utils.configs.bagel",
     "BailingMoeV3TextConfig": "vllm.transformers_utils.configs.bailing_moe_v3_vl",
@@ -69,7 +67,9 @@ _CLASS_TO_MODULE: dict[str, str] = {
     "OpenVLAConfig": "vllm.transformers_utils.configs.openvla",
     "OvisConfig": "vllm.transformers_utils.configs.ovis",
     "PixelShuffleSiglip2VisionConfig": "vllm.transformers_utils.configs.isaac",
+    "Qwen3_5LoopConfig": "vllm.transformers_utils.configs.qwen3_5_loop",
     "RadioConfig": "vllm.transformers_utils.configs.radio",
+    "SenseNovaLoopConfig": "vllm.transformers_utils.configs.qwen3_5_loop",
     "SpeculatorsConfig": "vllm.transformers_utils.configs.speculators",
     "UltravoxConfig": "vllm.transformers_utils.configs.ultravox",
     "UnlimitedOCRConfig": "vllm.transformers_utils.configs.unlimited_ocr",
@@ -141,7 +141,9 @@ __all__ = [
     "OpenVLAConfig",
     "OvisConfig",
     "PixelShuffleSiglip2VisionConfig",
+    "Qwen3_5LoopConfig",
     "RadioConfig",
+    "SenseNovaLoopConfig",
     "SpeculatorsConfig",
     "UltravoxConfig",
     "UnlimitedOCRConfig",

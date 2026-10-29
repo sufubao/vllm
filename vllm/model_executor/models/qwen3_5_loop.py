@@ -9,11 +9,13 @@ from torch import nn
 
 from vllm.config import VllmConfig
 from vllm.model_executor.layers.logits_processor import LogitsProcessor
+from vllm.model_executor.layers.mamba.mamba_utils import MambaStateCopyFunc
 from vllm.model_executor.layers.qwen3_5_mhc import MHCRouter
 from vllm.model_executor.layers.vocab_parallel_embedding import (
     ParallelLMHead,
     VocabParallelEmbedding,
 )
+from vllm.sequence import IntermediateTensors
 
 from .interfaces import HasInnerState, IsHybrid, SupportsMRoPE
 from .qwen3_5 import (
@@ -26,7 +28,7 @@ from .utils import AutoWeightsLoader, maybe_prefix
 
 
 class Qwen3_5LoopDecoderLayer(Qwen3_5DecoderLayer):
-    def __init__(self, vllm_config, layer_type, prefix):
+    def __init__(self, vllm_config: VllmConfig, layer_type: str, prefix: str) -> None:
         super().__init__(vllm_config, layer_type, prefix)
         config = vllm_config.model_config.hf_text_config
         self.physical_index = config.loop_physical_indices[self.layer_idx]
@@ -38,7 +40,13 @@ class Qwen3_5LoopDecoderLayer(Qwen3_5DecoderLayer):
             self.mhc_attn = MHCRouter(config.hidden_size, self.mhc)
             self.mhc_ffn = MHCRouter(config.hidden_size, self.mhc)
 
-    def forward(self, hidden_states, residual, positions, **kwargs):
+    def forward(
+        self,
+        hidden_states: torch.Tensor,
+        residual: torch.Tensor | None,
+        positions: torch.Tensor,
+        **kwargs: object,
+    ) -> tuple[torch.Tensor, torch.Tensor | None]:
         if not self.mhc_active:
             return super().forward(hidden_states, residual, positions, **kwargs)
         if residual is not None:
@@ -66,8 +74,8 @@ class Qwen3_5LoopDecoderLayer(Qwen3_5DecoderLayer):
 
 
 class Qwen3_5LoopModel(nn.Module):
-    def __init__(self, *, vllm_config, prefix=""):
-        nn.Module.__init__(self)
+    def __init__(self, *, vllm_config: VllmConfig, prefix: str = "") -> None:
+        super().__init__()
         self.config = vllm_config.model_config.hf_text_config
         self.quant_config = None
         self.vocab_size = self.config.vocab_size
@@ -83,20 +91,24 @@ class Qwen3_5LoopModel(nn.Module):
         )
 
     def forward(
-        self, input_ids, positions, intermediate_tensors=None, inputs_embeds=None
-    ):
-        hidden = (
+        self,
+        input_ids: torch.Tensor,
+        positions: torch.Tensor,
+        intermediate_tensors: IntermediateTensors | None = None,
+        inputs_embeds: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        hidden_states = (
             self.embed_tokens(input_ids) if inputs_embeds is None else inputs_embeds
         )
         residual = None
         for layer in self.layers:
-            hidden, residual = layer(hidden, residual, positions)
+            hidden_states, residual = layer(hidden_states, residual, positions)
         if residual is None:
-            return self.norm(hidden)
-        return self.norm(hidden, residual)[0]
+            return self.norm(hidden_states)
+        return self.norm(hidden_states, residual)[0]
 
-    def share_loop_parameters(self):
-        first = {}
+    def share_loop_parameters(self) -> None:
+        first: dict[int, nn.Module] = {}
         for physical, layer in zip(self.config.loop_physical_indices, self.layers):
             if physical not in first:
                 first[physical] = layer
@@ -105,7 +117,7 @@ class Qwen3_5LoopModel(nn.Module):
                 parent, _, leaf = name.rpartition(".")
                 setattr(layer.get_submodule(parent), leaf, param)
 
-    def load_weights(self, weights):
+    def load_weights(self, weights: Iterable[tuple[str, torch.Tensor]]) -> set[str]:
         return AutoWeightsLoader(self).load_weights(
             weights, mapper=Qwen3_5Model.hf_to_vllm_mapper
         )
@@ -115,21 +127,27 @@ class Qwen3_5LoopForConditionalGeneration(
     nn.Module, HasInnerState, IsHybrid, SupportsMRoPE
 ):
     @classmethod
-    def get_mamba_state_dtype_from_config(cls, vllm_config: VllmConfig):
+    def get_mamba_state_dtype_from_config(
+        cls, vllm_config: VllmConfig
+    ) -> tuple[torch.dtype, torch.dtype]:
         return Qwen3_5ForCausalLMBase.get_mamba_state_dtype_from_config(vllm_config)
 
     @classmethod
-    def get_mamba_state_shape_from_config(cls, vllm_config: VllmConfig):
+    def get_mamba_state_shape_from_config(
+        cls, vllm_config: VllmConfig
+    ) -> tuple[tuple[int, int], tuple[int, int]]:
         return Qwen3_5ForCausalLMBase.get_mamba_state_shape_from_config(vllm_config)
 
     @classmethod
-    def get_mamba_state_copy_func(cls):
+    def get_mamba_state_copy_func(
+        cls,
+    ) -> tuple[MambaStateCopyFunc, MambaStateCopyFunc]:
         return Qwen3_5ForCausalLMBase.get_mamba_state_copy_func()
 
     get_mrope_input_positions = Qwen3_5ForCausalLMBase.get_mrope_input_positions
 
-    def __init__(self, *, vllm_config: VllmConfig, prefix: str = ""):
-        nn.Module.__init__(self)
+    def __init__(self, *, vllm_config: VllmConfig, prefix: str = "") -> None:
+        super().__init__()
         self.vllm_config = vllm_config
         self.model_config = vllm_config.model_config
         self.config = self.model_config.hf_text_config
@@ -158,20 +176,20 @@ class Qwen3_5LoopForConditionalGeneration(
             self.lm_head = self.lm_head.tie_weights(self.model.embed_tokens)
         self.logits_processor = LogitsProcessor(self.config.vocab_size)
 
-    def embed_input_ids(self, input_ids):
+    def embed_input_ids(self, input_ids: torch.Tensor) -> torch.Tensor:
         return self.model.embed_tokens(input_ids)
 
     def forward(
         self,
-        input_ids,
-        positions,
-        intermediate_tensors=None,
-        inputs_embeds=None,
-        **kwargs,
-    ):
+        input_ids: torch.Tensor,
+        positions: torch.Tensor,
+        intermediate_tensors: IntermediateTensors | None = None,
+        inputs_embeds: torch.Tensor | None = None,
+        **kwargs: object,
+    ) -> torch.Tensor:
         return self.model(input_ids, positions, intermediate_tensors, inputs_embeds)
 
-    def compute_logits(self, hidden_states):
+    def compute_logits(self, hidden_states: torch.Tensor) -> torch.Tensor | None:
         return self.logits_processor(self.lm_head, hidden_states)
 
     def load_weights(self, weights: Iterable[tuple[str, torch.Tensor]]) -> set[str]:
@@ -179,7 +197,7 @@ class Qwen3_5LoopForConditionalGeneration(
         for execution, physical in enumerate(self.config.loop_physical_indices):
             destinations.setdefault(physical, []).append(execution)
 
-        def expanded_weights():
+        def expanded_weights() -> Iterable[tuple[str, torch.Tensor]]:
             for name, weight in weights:
                 name = name.replace("model.language_model.", "model.", 1)
                 if name == "model.loop_gate.logits":
