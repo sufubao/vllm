@@ -25,14 +25,26 @@ class MHCRouter(nn.Module):
         )
 
     def forward(self, residual: torch.Tensor):
-        flat = residual.flatten(-2).float()
-        normalized = flat * torch.rsqrt(flat.square().mean(-1, keepdim=True) + 1e-6)
-        logits = F.linear(normalized, self.weight, self.bias)
+        if residual.is_cuda:
+            from vllm.model_executor.kernels.mhc.triton import (
+                mhc_project_triton,
+                mhc_rmsnorm_triton,
+            )
+
+            normalized = mhc_rmsnorm_triton(residual)
+            if residual.shape[0] <= 32:
+                logits = mhc_project_triton(normalized, self.weight, self.bias)
+            else:
+                logits = F.linear(normalized, self.weight, self.bias)
+        else:
+            flat = residual.flatten(-2).float()
+            normalized = flat * torch.rsqrt(flat.square().mean(-1, keepdim=True) + 1e-6)
+            logits = F.linear(normalized, self.weight, self.bias)
         s = self.streams
         pre = logits[..., :s].sigmoid()
         post = 2 * logits[..., s : 2 * s].sigmoid()
         if self.fixed_identity:
-            mix = torch.eye(s, device=flat.device, dtype=torch.float32)
+            mix = torch.eye(s, device=residual.device, dtype=torch.float32)
         else:
             mix = logits[..., 2 * s :].unflatten(-1, (s, s))
             if residual.is_cuda:
@@ -57,6 +69,10 @@ class MHCRouter(nn.Module):
 
     @staticmethod
     def merge(residual, branch, post, mix):
+        if residual.is_cuda and residual.dtype == torch.bfloat16:
+            from vllm.model_executor.kernels.mhc.triton import mhc_merge_triton
+
+            return mhc_merge_triton(residual, branch, post, mix)
         mixed = mix.to(residual.dtype) @ residual
         update = post.to(branch.dtype).unsqueeze(-1) * branch.unsqueeze(-2)
         return mixed + update

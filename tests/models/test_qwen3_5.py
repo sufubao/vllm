@@ -178,3 +178,62 @@ def test_loop_mhc_log_sinkhorn_matches_reference(streams, tokens, scale):
     expected = expected.exp()
     actual = mhc_log_sinkhorn_triton(mix, 20)
     torch.testing.assert_close(actual, expected, rtol=1e-5, atol=1e-7)
+
+
+@pytest.mark.parametrize("streams", [2, 4])
+@pytest.mark.parametrize("tokens", [0, 1, 8, 32, 128])
+def test_loop_mhc_projection_preserves_fp32_routing(streams, tokens):
+    import torch
+
+    from vllm.model_executor.kernels.mhc.triton import (
+        mhc_project_triton,
+        mhc_rmsnorm_triton,
+    )
+
+    torch.manual_seed(1)
+    hidden = 4096
+    storage = torch.randn(
+        tokens, streams, hidden + 1, device="cuda", dtype=torch.bfloat16
+    )
+    x = storage[..., 1:]
+    flat = x.flatten(-2).float()
+    expected = flat * torch.rsqrt(flat.square().mean(-1, keepdim=True) + 1e-6)
+    actual = mhc_rmsnorm_triton(x)
+    torch.testing.assert_close(actual, expected, rtol=1e-6, atol=1e-7)
+    weight = (
+        torch.randn(2 * streams + streams**2, streams * hidden, device="cuda") * 0.01
+    )
+    bias = torch.randn(weight.shape[0], device="cuda") * 0.01
+    # FP64 avoids using cuBLAS FP32 accumulation error as the oracle.
+    reference = torch.nn.functional.linear(
+        expected.double(), weight.double(), bias.double()
+    ).float()
+    projected = mhc_project_triton(actual, weight, bias)
+    torch.testing.assert_close(projected, reference, rtol=1e-5, atol=2e-6)
+
+
+@pytest.mark.parametrize("streams", [2, 4])
+@pytest.mark.parametrize("tokens", [0, 1, 8, 128])
+@pytest.mark.parametrize("expanded", [False, True])
+def test_loop_mhc_fused_merge_preserves_bf16_rounding(streams, tokens, expanded):
+    import torch
+
+    from vllm.model_executor.kernels.mhc.triton import mhc_merge_triton
+
+    torch.manual_seed(2)
+    storage = torch.randn(tokens, streams, 258, device="cuda", dtype=torch.bfloat16)
+    residual = storage[..., 1:]
+    if expanded:
+        residual = residual[:, :1].expand_as(residual)
+    branch = torch.randn(tokens, 257, device="cuda", dtype=torch.bfloat16)
+    post = torch.randn(tokens, streams, device="cuda")
+    mix = (
+        torch.eye(streams, device="cuda")
+        if expanded
+        else torch.randn(tokens, streams, streams, device="cuda")
+    )
+    mixed = mix.to(residual.dtype) @ residual
+    update = post.to(branch.dtype).unsqueeze(-1) * branch.unsqueeze(-2)
+    expected = mixed + update
+    actual = mhc_merge_triton(residual, branch, post, mix)
+    torch.testing.assert_close(actual, expected, rtol=0, atol=0)

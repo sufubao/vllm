@@ -32,5 +32,16 @@ performs log-space Sinkhorn normalization. Residual merging preserves the
 checkpoint's matrix orientation and BF16 intermediate rounding; the generic
 `MHCPreOp` and `MHCPostOp` use different normalization and rounding conventions.
 
+CUDA routing uses a fused FP32 RMS normalization and, for up to 32 tokens, a
+split-K FP32 projection. Larger batches retain the cuBLAS projection. Two-stream
+BF16 residual merging is fused into one kernel; wider streams retain the
+original matrix multiplication to preserve its accumulation order. These paths
+support CUDA Graph replay without reducing router precision.
+
+Run `benchmarks/kernels/benchmark_qwen3_5_mhc.py` with FlashInfer and CUPTI
+installed to compare the routing and merging operations. The benchmark checks
+projection against FP64 and merging against the original BF16 computation
+before measuring CUDA Graph replay with cold L2 cache.
+
 Use `--enforce-eager` instead of the compilation configuration for an eager
 baseline. Add `--cudagraph-metrics` to inspect actual graph dispatch statistics.
