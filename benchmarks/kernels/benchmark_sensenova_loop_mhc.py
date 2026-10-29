@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
-"""CUPTI comparison of Qwen3.5 Loop mHC normalization, projection and merge."""
+"""CUPTI comparison of SenseNova Loop mHC normalization, projection and merge."""
 
 import json
 import statistics
@@ -9,7 +9,7 @@ import torch
 import torch.nn.functional as F
 from flashinfer.testing import bench_gpu_time_with_cupti
 
-from vllm.model_executor.kernels.mhc.qwen3_5 import (
+from vllm.model_executor.kernels.mhc.sensenova_loop import (
     mhc_merge_triton,
     mhc_project_triton,
     mhc_rmsnorm_triton,

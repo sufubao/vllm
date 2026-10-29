@@ -30,7 +30,7 @@ class MHCRouter(nn.Module):
         self, residual: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         if residual.is_cuda:
-            from vllm.model_executor.kernels.mhc import qwen3_5 as mhc_kernels
+            from vllm.model_executor.kernels.mhc import sensenova_loop as mhc_kernels
             from vllm.model_executor.kernels.mhc.triton import hc_collapse_triton
 
             normalized = mhc_kernels.mhc_rmsnorm_triton(residual)
@@ -72,7 +72,7 @@ class MHCRouter(nn.Module):
         mix: torch.Tensor,
     ) -> torch.Tensor:
         if residual.is_cuda and residual.dtype == torch.bfloat16:
-            from vllm.model_executor.kernels.mhc.qwen3_5 import mhc_merge_triton
+            from vllm.model_executor.kernels.mhc.sensenova_loop import mhc_merge_triton
 
             return mhc_merge_triton(residual, branch, post, mix)
         mixed = mix.to(residual.dtype) @ residual

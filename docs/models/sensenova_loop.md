@@ -1,7 +1,7 @@
-# Qwen3.5 Loop with mHC
+# SenseNova Loop with mHC
 
-The `Qwen3_5LoopForConditionalGeneration` implementation serves text from
-`qwen3_5_loop` and `sensenova_loop` checkpoints. It uses a fixed
+The `SenseNovaLoopForConditionalGeneration` implementation serves text from
+`sensenova_loop` checkpoints. It uses a fixed
 `loop_settings.eval_count`, shares repeated layer parameters, and keeps separate
 attention and recurrent caches for every execution of a layer. Optional mHC
 routers retain FP32 weights and use log-space Sinkhorn normalization.
@@ -13,7 +13,7 @@ LoRA, speculative decoding, learned loop gates, or layer scaling.
 
 ```bash
 vllm serve /path/to/checkpoint \
-  --served-model-name loop-test \
+  --served-model-name sensenova_loop \
   --tensor-parallel-size 2 \
   --dtype bfloat16 \
   --compilation-config '{"mode":0,"cudagraph_mode":"FULL_DECODE_ONLY","cudagraph_capture_sizes":[1,2,4,8]}' \
@@ -22,8 +22,17 @@ vllm serve /path/to/checkpoint \
   --host 127.0.0.1 --port 8001
 ```
 
-Use the original checkpoint configuration; no architecture-name rewrite is
-needed. Vision weights are ignored for text inference. At load time, repeated
+Set the following top-level fields in the checkpoint's `config.json`, retaining
+its existing text, loop and mHC settings:
+
+```json
+{
+  "model_type": "sensenova_loop",
+  "architectures": ["SenseNovaLoopForConditionalGeneration"]
+}
+```
+
+Vision weights are ignored for text inference. At load time, repeated
 layers temporarily allocate separate weights before tying parameters, so allow
 additional memory during initialization. BF16 CUDA inference reuses vLLM's
 `hc_collapse_triton` mHC stream reduction. Coefficients are rounded to BF16
@@ -38,7 +47,7 @@ BF16 residual merging is fused into one kernel; wider streams retain the
 original matrix multiplication to preserve its accumulation order. These paths
 support CUDA Graph replay without reducing router precision.
 
-Run `benchmarks/kernels/benchmark_qwen3_5_mhc.py` with FlashInfer and CUPTI
+Run `benchmarks/kernels/benchmark_sensenova_loop_mhc.py` with FlashInfer and CUPTI
 installed to compare the routing and merging operations. The benchmark checks
 projection against FP64 and merging against the original BF16 computation
 before measuring CUDA Graph replay with cold L2 cache.

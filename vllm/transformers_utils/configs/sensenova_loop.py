@@ -7,8 +7,8 @@ from typing import Any
 from transformers import Qwen3_5Config
 
 
-class Qwen3_5LoopConfig(Qwen3_5Config):
-    model_type = "qwen3_5_loop"
+class SenseNovaLoopConfig(Qwen3_5Config):
+    model_type = "sensenova_loop"
 
     def __init__(
         self,
@@ -68,11 +68,3 @@ class Qwen3_5LoopConfig(Qwen3_5Config):
         text.mhc = mhc
         text.num_hidden_layers = len(indices)
         text.layer_types = [layer_types[i] for i in indices]
-
-
-class SenseNovaLoopConfig(Qwen3_5LoopConfig):
-    model_type = "sensenova_loop"
-
-    def __init__(self, **kwargs) -> None:
-        # Keep Transformers' dataclass init from bypassing loop expansion.
-        super().__init__(**kwargs)

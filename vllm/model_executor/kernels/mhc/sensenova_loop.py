@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
-"""Qwen3.5 Loop routing with FP32 logits and BF16 stream coefficients."""
+"""SenseNova Loop routing with FP32 logits and BF16 stream coefficients."""
 
 import torch
 from torch import Tensor

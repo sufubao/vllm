@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
-"""Qwen3.5 Loop mHC numerical and CUDA Graph regression tests."""
+"""SenseNova Loop mHC numerical and CUDA Graph regression tests."""
 
 import pytest
 import torch
@@ -10,7 +10,7 @@ import torch
 @pytest.mark.parametrize("expanded", [False, True])
 @pytest.mark.parametrize("hidden_size", [257, 2048])
 def test_loop_mhc_cuda_graph_replays_new_residuals(streams, expanded, hidden_size):
-    from vllm.model_executor.layers.qwen3_5_mhc import MHCRouter
+    from vllm.model_executor.layers.sensenova_loop_mhc import MHCRouter
 
     torch.manual_seed(0)
     router = MHCRouter(
@@ -53,7 +53,7 @@ def test_loop_mhc_cuda_graph_replays_new_residuals(streams, expanded, hidden_siz
 @pytest.mark.parametrize("tokens", [0, 1, 3, 128, 2048])
 @pytest.mark.parametrize("scale", [1.0, 100.0])
 def test_loop_mhc_log_sinkhorn_matches_reference(streams, tokens, scale):
-    from vllm.model_executor.kernels.mhc.qwen3_5 import mhc_log_sinkhorn_triton
+    from vllm.model_executor.kernels.mhc.sensenova_loop import mhc_log_sinkhorn_triton
 
     torch.manual_seed(0)
     logits = torch.randn(tokens, 2 * streams + streams**2, device="cuda") * scale
@@ -70,7 +70,7 @@ def test_loop_mhc_log_sinkhorn_matches_reference(streams, tokens, scale):
 @pytest.mark.parametrize("streams", [2, 4])
 @pytest.mark.parametrize("tokens", [0, 1, 8, 32, 128])
 def test_loop_mhc_projection_preserves_fp32_routing(streams, tokens):
-    from vllm.model_executor.kernels.mhc.qwen3_5 import (
+    from vllm.model_executor.kernels.mhc.sensenova_loop import (
         mhc_project_triton,
         mhc_rmsnorm_triton,
     )
@@ -101,7 +101,7 @@ def test_loop_mhc_projection_preserves_fp32_routing(streams, tokens):
 @pytest.mark.parametrize("tokens", [0, 1, 8, 128])
 @pytest.mark.parametrize("expanded", [False, True])
 def test_loop_mhc_fused_merge_preserves_bf16_rounding(streams, tokens, expanded):
-    from vllm.model_executor.kernels.mhc.qwen3_5 import mhc_merge_triton
+    from vllm.model_executor.kernels.mhc.sensenova_loop import mhc_merge_triton
 
     torch.manual_seed(2)
     storage = torch.randn(tokens, streams, 258, device="cuda", dtype=torch.bfloat16)

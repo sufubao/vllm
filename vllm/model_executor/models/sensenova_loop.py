@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
-"""Text inference for fixed-count Qwen3.5 Loop checkpoints with optional mHC."""
+"""Text inference for fixed-count SenseNova Loop checkpoints with optional mHC."""
 
 from collections.abc import Iterable
 
@@ -10,7 +10,7 @@ from torch import nn
 from vllm.config import VllmConfig
 from vllm.model_executor.layers.logits_processor import LogitsProcessor
 from vllm.model_executor.layers.mamba.mamba_utils import MambaStateCopyFunc
-from vllm.model_executor.layers.qwen3_5_mhc import MHCRouter
+from vllm.model_executor.layers.sensenova_loop_mhc import MHCRouter
 from vllm.model_executor.layers.vocab_parallel_embedding import (
     ParallelLMHead,
     VocabParallelEmbedding,
@@ -27,7 +27,7 @@ from .qwen3_5 import (
 from .utils import AutoWeightsLoader, maybe_prefix
 
 
-class Qwen3_5LoopDecoderLayer(Qwen3_5DecoderLayer):
+class SenseNovaLoopDecoderLayer(Qwen3_5DecoderLayer):
     def __init__(self, vllm_config: VllmConfig, layer_type: str, prefix: str) -> None:
         super().__init__(vllm_config, layer_type, prefix)
         config = vllm_config.model_config.hf_text_config
@@ -73,7 +73,7 @@ class Qwen3_5LoopDecoderLayer(Qwen3_5DecoderLayer):
         return hidden_states, None
 
 
-class Qwen3_5LoopModel(nn.Module):
+class SenseNovaLoopModel(nn.Module):
     def __init__(self, *, vllm_config: VllmConfig, prefix: str = "") -> None:
         super().__init__()
         self.config = vllm_config.model_config.hf_text_config
@@ -83,7 +83,7 @@ class Qwen3_5LoopModel(nn.Module):
             self.vocab_size, self.config.hidden_size
         )
         self.layers = nn.ModuleList(
-            Qwen3_5LoopDecoderLayer(vllm_config, layer_type, f"{prefix}.layers.{i}")
+            SenseNovaLoopDecoderLayer(vllm_config, layer_type, f"{prefix}.layers.{i}")
             for i, layer_type in enumerate(self.config.layer_types)
         )
         self.norm = Qwen3_5RMSNorm(
@@ -123,7 +123,7 @@ class Qwen3_5LoopModel(nn.Module):
         )
 
 
-class Qwen3_5LoopForConditionalGeneration(
+class SenseNovaLoopForConditionalGeneration(
     nn.Module, HasInnerState, IsHybrid, SupportsMRoPE
 ):
     @classmethod
@@ -159,12 +159,12 @@ class Qwen3_5LoopForConditionalGeneration(
             or getattr(self.config, "layer_scale", False)
         ):
             raise ValueError(
-                "Qwen3.5 Loop currently requires unquantized text inference "
+                "SenseNova Loop currently requires unquantized text inference "
                 "without pipeline parallelism, LoRA, speculation or layer_scale"
             )
         self.quant_config = None
         self.scheduler_config = vllm_config.scheduler_config
-        self.model = Qwen3_5LoopModel(
+        self.model = SenseNovaLoopModel(
             vllm_config=vllm_config, prefix=maybe_prefix(prefix, "model")
         )
         self.lm_head = ParallelLMHead(
