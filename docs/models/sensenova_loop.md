@@ -25,8 +25,8 @@ vllm serve /path/to/checkpoint \
   --host 127.0.0.1 --port 8001
 ```
 
-Set the following top-level fields in the checkpoint's `config.json`, retaining
-its existing text, loop and mHC settings:
+Native loading expects the following top-level fields in `config.json`, alongside
+the checkpoint's text, loop and mHC settings:
 
 ```json
 {
@@ -34,6 +34,15 @@ its existing text, loop and mHC settings:
   "architectures": ["SenseNovaLoopForConditionalGeneration"]
 }
 ```
+
+For a local checkpoint that already uses `model_type="sensenova_loop"` but names
+its HF reference architecture, select the native architecture at startup:
+
+```bash
+--hf-overrides '{"architectures":["SenseNovaLoopForConditionalGeneration"]}'
+```
+
+This preserves the original checkpoint configuration and weights.
 
 To override the loop count or mHC settings at startup, pass their complete
 objects through `--hf-overrides`. The execution plan and mHC boundary checks
@@ -45,9 +54,36 @@ the mHC settings.
 --hf-overrides '{"loop_settings":{"start":4,"end":28,"eval_count":3}}'
 ```
 
-Vision weights are ignored for text inference. At load time, repeated
-layers temporarily allocate separate weights before tying parameters, so allow
-additional memory during initialization. BF16 CUDA inference reuses vLLM's
+## Execution plan and parameter sharing
+
+The checkpoint describes physical layers. vLLM needs one logical layer for each
+execution of a physical layer, including repetitions, so it can allocate separate
+attention and recurrent cache state. `SenseNovaLoopConfig` expands the physical
+layer indices and attention types before model initialization. It retains the
+physical metadata and rebuilds the plan after `--hf-overrides`; applying an
+override therefore does not expand an already expanded plan.
+
+Each logical layer has its own module and cache identity. A model post-load hook
+ties repeated layers' parameters after loading and weight processing, including
+dummy initialization. Reusing the entire decoder module would also reuse its
+cache identity, which would mix states from different loop iterations. Parameter
+sharing reduces steady-state weight memory, but does not reduce the number of
+attention or recurrent cache entries. At load time, repeated layers temporarily
+allocate separate weights before tying parameters, so allow additional memory
+during initialization. Vision weights are ignored for text inference.
+
+The native implementation reuses Qwen3.5 attention, recurrent-state helpers,
+normalization, MLP and weight-loading components. It supplies the loop execution
+plan and mHC residual-stream operations while keeping the scheduler and model
+runner unchanged. The custom config adapts checkpoint metadata to vLLM's logical
+layer layout; it is not a replacement for the checkpoint's reference model.
+The HF reference maps each physical-layer visit to a separate `DynamicCache`
+slot. The native model expresses these execution slots through vLLM's hybrid
+model interfaces, so both attention and recurrent state follow the loop plan.
+
+## mHC numerical behavior
+
+BF16 CUDA inference reuses vLLM's
 `hc_collapse_triton` mHC stream reduction. Coefficients are rounded to BF16
 before reduction, as in the checkpoint implementation. A fused Triton kernel
 performs log-space Sinkhorn normalization. Residual merging preserves the
