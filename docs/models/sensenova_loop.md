@@ -9,7 +9,9 @@ routers retain FP32 weights and use log-space Sinkhorn normalization.
 The implementation requires unquantized weights. On NVIDIA GPUs, full decode
 CUDA Graphs can run without Torch compilation; prefill executes eagerly.
 It supports tensor parallelism, but not pipeline parallelism, vision, audio,
-LoRA, speculative decoding, learned loop gates, or layer scaling.
+LoRA, speculative decoding, learned loop gates, or layer scaling. CPU weight
+offloading is unsupported with shared loop weights: nonzero `--cpu-offload-gb`
+or `--offload-group-size` is rejected before workers start.
 
 ```bash
 vllm serve /path/to/checkpoint \
@@ -30,6 +32,14 @@ its existing text, loop and mHC settings:
   "model_type": "sensenova_loop",
   "architectures": ["SenseNovaLoopForConditionalGeneration"]
 }
+```
+
+To override the loop count or mHC settings at startup, pass their complete
+objects through `--hf-overrides`. The execution plan and mHC boundary checks
+are recomputed after overrides; physical checkpoint layers remain unchanged.
+
+```bash
+--hf-overrides '{"loop_settings":{"start":4,"end":28,"eval_count":3}}'
 ```
 
 Vision weights are ignored for text inference. At load time, repeated

@@ -71,6 +71,16 @@ class AliceAIForCausalLMConfig(VerifyAndUpdateConfig):
             )
 
 
+class SenseNovaLoopConfig(VerifyAndUpdateConfig):
+    @staticmethod
+    def verify_and_update_config(vllm_config: "VllmConfig") -> None:
+        offload = vllm_config.offload_config
+        if offload.uva.cpu_offload_gb > 0 or offload.prefetch.offload_group_size > 0:
+            raise NotImplementedError(
+                "SenseNova Loop does not support CPU offload with shared loop weights"
+            )
+
+
 class DeepseekV32ForCausalLM(VerifyAndUpdateConfig):
     @classmethod
     def verify_and_update_config(cls, vllm_config: "VllmConfig") -> None:
@@ -1341,6 +1351,7 @@ MODELS_CONFIG_MAP: dict[str, type[VerifyAndUpdateConfig]] = {
     "Qwen4ExpForCausalLM": Qwen4ExpForCausalLMConfig,
     "Qwen4ExpForConditionalGeneration": (Qwen4ExpForConditionalGenerationConfig),
     "Qwen4ExpMTP": Qwen4ExpMTPConfig,
+    "SenseNovaLoopForConditionalGeneration": SenseNovaLoopConfig,
     "UnlimitedOCRForCausalLM": UnlimitedOCRForCausalLMConfig,
     "VoyageQwen3BidirectionalEmbedModel": VoyageQwen3BidirectionalEmbedModelConfig,
     "XLMRobertaModel": JinaRobertaModelConfig,

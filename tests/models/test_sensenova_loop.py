@@ -4,6 +4,69 @@
 import pytest
 
 
+def test_loop_overrides_refresh_execution_plan(tmp_path):
+    from vllm.transformers_utils.config import get_config
+    from vllm.transformers_utils.configs.sensenova_loop import SenseNovaLoopConfig
+
+    config = SenseNovaLoopConfig(
+        architectures=["SenseNovaLoopForConditionalGeneration"],
+        text_config={
+            "num_hidden_layers": 4,
+            "layer_types": ["linear_attention", "full_attention"] * 2,
+        },
+        loop_settings={"start": 1, "end": 3, "eval_count": 2},
+        mhc={
+            "start": 1,
+            "end": 3,
+            "streams": 2,
+            "iterations": 20,
+            "fixed_identity": False,
+            "pre_scale": 1.0,
+        },
+    )
+    config.save_pretrained(tmp_path)
+    restored = get_config(
+        tmp_path,
+        trust_remote_code=False,
+        hf_overrides_kw={
+            "loop_settings": {"start": 1, "end": 3, "eval_count": 3},
+            "mhc": dict(config.mhc, pre_scale=0.5),
+        },
+    )
+    for roundtrip in (restored, SenseNovaLoopConfig.from_dict(restored.to_dict())):
+        text = roundtrip.get_text_config()
+        assert text.loop_physical_indices == [0, 1, 2, 1, 2, 1, 2, 3]
+        assert text.num_hidden_layers == 8
+        assert text.layer_types == ["linear_attention", "full_attention"] * 4
+        assert text.mhc["pre_scale"] == 0.5
+
+
+def test_loop_overrides_revalidate_mhc_boundaries(tmp_path):
+    from vllm.transformers_utils.config import get_config
+    from vllm.transformers_utils.configs.sensenova_loop import SenseNovaLoopConfig
+
+    config = SenseNovaLoopConfig(
+        architectures=["SenseNovaLoopForConditionalGeneration"],
+        text_config={"num_hidden_layers": 4},
+        loop_settings={"start": 1, "end": 3, "eval_count": 2},
+    )
+    config.save_pretrained(tmp_path)
+    with pytest.raises(ValueError, match="crossing a loop boundary"):
+        get_config(
+            tmp_path,
+            trust_remote_code=False,
+            hf_overrides_kw={
+                "mhc": {
+                    "start": 0,
+                    "end": 2,
+                    "streams": 2,
+                    "iterations": 20,
+                    "fixed_identity": False,
+                }
+            },
+        )
+
+
 @pytest.mark.parametrize("load_from_disk", [False, True])
 def test_loop_config_preserves_physical_layers_across_serialization(
     tmp_path, load_from_disk

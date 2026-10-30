@@ -4,7 +4,7 @@
 import math
 from typing import Any
 
-from transformers import Qwen3_5Config
+from transformers import PreTrainedConfig, Qwen3_5Config
 
 
 class SenseNovaLoopConfig(Qwen3_5Config):
@@ -21,10 +21,22 @@ class SenseNovaLoopConfig(Qwen3_5Config):
         super().__init__(**kwargs)
         self.loop_settings = loop_settings
         self.mhc = mhc
-        if loop_settings is None:
-            return
-        text = self.text_config
-        num_layers = loop_physical_num_layers or text.num_hidden_layers
+        self.loop_physical_num_layers = (
+            loop_physical_num_layers or self.text_config.num_hidden_layers
+        )
+        self.loop_physical_layer_types = list(
+            loop_physical_layer_types or self.text_config.layer_types
+        )
+        self.get_text_config()
+
+    def get_text_config(self, **kwargs) -> PreTrainedConfig:
+        text = super().get_text_config(**kwargs)
+        # vLLM applies HF overrides after constructing this config.
+        loop_settings = getattr(self, "loop_settings", None)
+        if loop_settings is None or text is self:
+            return text
+        mhc = self.mhc
+        num_layers = self.loop_physical_num_layers
         start, end, count = (loop_settings[k] for k in ("start", "end", "eval_count"))
         if (
             any(type(v) is not int for v in (start, end, count))
@@ -37,7 +49,7 @@ class SenseNovaLoopConfig(Qwen3_5Config):
             )
         indices = list(range(start)) + list(range(start, end)) * count
         indices += list(range(end, num_layers))
-        layer_types = loop_physical_layer_types or text.layer_types
+        layer_types = self.loop_physical_layer_types
         if len(layer_types) != num_layers:
             raise ValueError("layer_types must describe the physical layers")
         if mhc is not None:
@@ -62,9 +74,8 @@ class SenseNovaLoopConfig(Qwen3_5Config):
                 raise ValueError(
                     "Invalid mHC settings or range crossing a loop boundary"
                 )
-        self.loop_physical_num_layers = num_layers
-        self.loop_physical_layer_types = list(layer_types)
         text.loop_physical_indices = indices
         text.mhc = mhc
         text.num_hidden_layers = len(indices)
         text.layer_types = [layer_types[i] for i in indices]
+        return text
