@@ -211,7 +211,8 @@ class SenseNovaLoopForConditionalGeneration(
                 else:
                     yield name, weight
 
-        loaded = AutoWeightsLoader(self).load_weights(expanded_weights())
+        return AutoWeightsLoader(self).load_weights(expanded_weights())
+
+    def process_weights_after_loading(self) -> None:
         # Parameters share storage; attention modules and their caches stay distinct.
         self.model.share_loop_parameters()
-        return loaded

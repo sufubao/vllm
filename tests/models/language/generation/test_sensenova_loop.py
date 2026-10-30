@@ -38,8 +38,10 @@ def loop_checkpoint(tmp_path):
     weights = Qwen3_5ForCausalLM(config.text_config).bfloat16().state_dict()
     for layer in (1, 2):
         for router in ("mhc_attn", "mhc_ffn"):
-            weights[f"model.layers.{layer}.{router}.weight"] = torch.zeros(8, 512)
-            weights[f"model.layers.{layer}.{router}.bias"] = torch.zeros(8)
+            weights[f"model.layers.{layer}.{router}.weight"] = (
+                torch.randn(8, 512) * 0.01
+            )
+            weights[f"model.layers.{layer}.{router}.bias"] = torch.randn(8) * 0.01
     save_file(weights, tmp_path / "model.safetensors")
     config.loop_settings = {"start": 1, "end": 3, "eval_count": 2}
     config.mhc = {
@@ -54,19 +56,30 @@ def loop_checkpoint(tmp_path):
     return str(tmp_path)
 
 
-def test_loop_overrides_reach_loaded_layers(loop_checkpoint, monkeypatch):
+@pytest.mark.parametrize("load_format", ["auto", "dummy"])
+@pytest.mark.parametrize(
+    "loop_settings, indices",
+    [
+        ({"start": 1, "end": 3, "eval_count": 3}, [0, 1, 2, 1, 2, 1, 2, 3]),
+        (None, [0, 1, 2, 3]),
+    ],
+)
+def test_loop_overrides_reach_loaded_layers(
+    loop_checkpoint, monkeypatch, loop_settings, indices, load_format
+):
     monkeypatch.setenv("VLLM_ALLOW_INSECURE_SERIALIZATION", "1")
     llm = LLM(
         model=loop_checkpoint,
         skip_tokenizer_init=True,
         dtype="bfloat16",
+        load_format=load_format,
         enforce_eager=True,
         max_model_len=32,
         max_num_seqs=2,
         gpu_memory_utilization=0.05,
         kv_cache_memory_bytes=16 * 1024**2,
         hf_overrides={
-            "loop_settings": {"start": 1, "end": 3, "eval_count": 3},
+            "loop_settings": loop_settings,
             "mhc": {
                 "start": 1,
                 "end": 3,
@@ -81,13 +94,25 @@ def test_loop_overrides_reach_loaded_layers(loop_checkpoint, monkeypatch):
 
         def inspect_layers(model):
             layers = model.model.layers
+            assert len({id(layer) for layer in layers}) == len(layers)
+            physical_layers: dict[int, torch.nn.Module] = {}
+            for layer in layers:
+                first = physical_layers.setdefault(layer.physical_index, layer)
+                parameters = dict(first.named_parameters())
+                assert all(
+                    parameter is parameters[name]
+                    for name, parameter in layer.named_parameters()
+                )
+                if layer.mhc_active:
+                    assert layer.mhc_attn.weight.dtype == torch.float32
+                    assert layer.mhc_ffn.weight.dtype == torch.float32
             return (
                 [layer.physical_index for layer in layers],
                 [layer.mhc_attn.pre_scale for layer in layers if layer.mhc_active],
             )
 
         assert llm.apply_model(inspect_layers) == [
-            ([0, 1, 2, 1, 2, 1, 2, 3], [0.5] * 6)
+            (indices, [0.5] * (len(indices) - 2))
         ]
         output = llm.generate(
             {"prompt_token_ids": [1, 2, 3]},
@@ -96,6 +121,55 @@ def test_loop_overrides_reach_loaded_layers(loop_checkpoint, monkeypatch):
         assert len(output[0].outputs[0].token_ids) == 2
     finally:
         llm.llm_engine.engine_core.shutdown()
+
+
+def test_loop_decode_graph_matches_eager(loop_checkpoint, monkeypatch):
+    from vllm.config.compilation import CompilationMode, CUDAGraphMode
+    from vllm.platforms import current_platform
+
+    monkeypatch.setenv("VLLM_ALLOW_INSECURE_SERIALIZATION", "1")
+    outputs = []
+    for eager in (True, False):
+        llm = LLM(
+            model=loop_checkpoint,
+            skip_tokenizer_init=True,
+            dtype="bfloat16",
+            enforce_eager=eager,
+            max_model_len=32,
+            max_num_seqs=2,
+            gpu_memory_utilization=0.05,
+            kv_cache_memory_bytes=16 * 1024**2,
+            compilation_config={"cudagraph_capture_sizes": [1, 2]},
+        )
+        try:
+
+            def inspect_graphs(model):
+                from vllm.compilation.counter import compilation_counter
+
+                config = model.vllm_config.compilation_config
+                return (
+                    config.mode.name,
+                    config.cudagraph_mode.name,
+                    compilation_counter.num_cudagraph_captured,
+                )
+
+            mode, graph_mode, captures = llm.apply_model(inspect_graphs)[0]
+            if eager:
+                assert mode == CompilationMode.NONE.name
+                assert graph_mode == CUDAGraphMode.NONE.name
+            else:
+                if current_platform.is_cuda():
+                    assert mode == CompilationMode.NONE.name
+                    assert graph_mode == CUDAGraphMode.FULL_DECODE_ONLY.name
+                assert captures > 0
+            output = llm.generate(
+                [{"prompt_token_ids": [1, 2, 3]}, {"prompt_token_ids": [4, 5, 6]}],
+                SamplingParams(temperature=0, max_tokens=4, ignore_eos=True),
+            )
+            outputs.append([request.outputs[0].token_ids for request in output])
+        finally:
+            llm.llm_engine.engine_core.shutdown()
+    assert outputs[0] == outputs[1]
 
 
 @pytest.mark.parametrize(

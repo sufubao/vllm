@@ -4,7 +4,45 @@
 import pytest
 
 
-def test_loop_overrides_refresh_execution_plan(tmp_path):
+@pytest.mark.parametrize("use_original_num_layers", [False, True])
+def test_loop_dummy_config_preserves_repeated_hybrid_layers(use_original_num_layers):
+    from vllm.transformers_utils.configs.sensenova_loop import SenseNovaLoopConfig
+
+    from .utils import dummy_hf_overrides
+
+    config = SenseNovaLoopConfig(
+        text_config={
+            "num_hidden_layers": 4,
+            "layer_types": ["linear_attention", "full_attention"] * 2,
+        },
+        loop_settings={"start": 1, "end": 3, "eval_count": 2},
+        mhc={
+            "start": 1,
+            "end": 3,
+            "streams": 2,
+            "iterations": 20,
+            "fixed_identity": False,
+        },
+    )
+    config = dummy_hf_overrides(
+        config,
+        model_arch="SenseNovaLoopForConditionalGeneration",
+        use_original_num_layers=use_original_num_layers,
+    )
+    text = config.get_text_config()
+    expected = [0, 1, 2, 1, 2, 3] if use_original_num_layers else [0, 1, 0, 1]
+    assert text.loop_physical_indices == expected
+    assert text.num_hidden_layers == len(expected)
+
+
+@pytest.mark.parametrize(
+    "loop_settings, indices",
+    [
+        ({"start": 1, "end": 3, "eval_count": 3}, [0, 1, 2, 1, 2, 1, 2, 3]),
+        (None, [0, 1, 2, 3]),
+    ],
+)
+def test_loop_overrides_refresh_execution_plan(tmp_path, loop_settings, indices):
     from vllm.transformers_utils.config import get_config
     from vllm.transformers_utils.configs.sensenova_loop import SenseNovaLoopConfig
 
@@ -29,15 +67,17 @@ def test_loop_overrides_refresh_execution_plan(tmp_path):
         tmp_path,
         trust_remote_code=False,
         hf_overrides_kw={
-            "loop_settings": {"start": 1, "end": 3, "eval_count": 3},
+            "loop_settings": loop_settings,
             "mhc": dict(config.mhc, pre_scale=0.5),
         },
     )
     for roundtrip in (restored, SenseNovaLoopConfig.from_dict(restored.to_dict())):
         text = roundtrip.get_text_config()
-        assert text.loop_physical_indices == [0, 1, 2, 1, 2, 1, 2, 3]
-        assert text.num_hidden_layers == 8
-        assert text.layer_types == ["linear_attention", "full_attention"] * 4
+        assert text.loop_physical_indices == indices
+        assert text.num_hidden_layers == len(indices)
+        assert text.layer_types == ["linear_attention", "full_attention"] * (
+            len(indices) // 2
+        )
         assert text.mhc["pre_scale"] == 0.5
 
 

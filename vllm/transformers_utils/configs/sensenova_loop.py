@@ -32,11 +32,13 @@ class SenseNovaLoopConfig(Qwen3_5Config):
     def get_text_config(self, **kwargs) -> PreTrainedConfig:
         text = super().get_text_config(**kwargs)
         # vLLM applies HF overrides after constructing this config.
-        loop_settings = getattr(self, "loop_settings", None)
-        if loop_settings is None or text is self:
+        if not hasattr(self, "loop_physical_num_layers") or text is self:
             return text
         mhc = self.mhc
         num_layers = self.loop_physical_num_layers
+        loop_settings = self.loop_settings
+        if loop_settings is None:
+            loop_settings = {"start": 0, "end": num_layers, "eval_count": 1}
         start, end, count = (loop_settings[k] for k in ("start", "end", "eval_count"))
         if (
             any(type(v) is not int for v in (start, end, count))

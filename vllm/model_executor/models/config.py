@@ -74,11 +74,20 @@ class AliceAIForCausalLMConfig(VerifyAndUpdateConfig):
 class SenseNovaLoopConfig(VerifyAndUpdateConfig):
     @staticmethod
     def verify_and_update_config(vllm_config: "VllmConfig") -> None:
+        from vllm.config.compilation import CompilationMode, CUDAGraphMode
+        from vllm.platforms import current_platform
+
         offload = vllm_config.offload_config
         if offload.uva.cpu_offload_gb > 0 or offload.prefetch.offload_group_size > 0:
             raise NotImplementedError(
                 "SenseNova Loop does not support CPU offload with shared loop weights"
             )
+        if current_platform.is_cuda():
+            compilation_config = vllm_config.compilation_config
+            if compilation_config.mode is None:
+                compilation_config.mode = CompilationMode.NONE
+            if compilation_config.cudagraph_mode is None:
+                compilation_config.cudagraph_mode = CUDAGraphMode.FULL_DECODE_ONLY
 
 
 class DeepseekV32ForCausalLM(VerifyAndUpdateConfig):

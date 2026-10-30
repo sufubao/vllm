@@ -9,12 +9,21 @@ import torch
 @pytest.mark.parametrize("streams", [2, 4])
 @pytest.mark.parametrize("expanded", [False, True])
 @pytest.mark.parametrize("hidden_size", [257, 2048])
-def test_loop_mhc_cuda_graph_replays_new_residuals(streams, expanded, hidden_size):
+@pytest.mark.parametrize("fixed_identity", [False, True])
+def test_loop_mhc_cuda_graph_replays_new_residuals(
+    streams, expanded, hidden_size, fixed_identity
+):
     from vllm.model_executor.layers.sensenova_loop_mhc import MHCRouter
 
     torch.manual_seed(0)
     router = MHCRouter(
-        hidden_size, {"streams": streams, "iterations": 20, "fixed_identity": False}
+        hidden_size,
+        {
+            "streams": streams,
+            "iterations": 20,
+            "fixed_identity": fixed_identity,
+            "pre_scale": 0.7,
+        },
     ).cuda()
     with torch.no_grad():
         router.weight.normal_(std=0.01)
@@ -41,7 +50,7 @@ def test_loop_mhc_cuda_graph_replays_new_residuals(streams, expanded, hidden_siz
         normalized = flat * torch.rsqrt(flat.square().mean(-1, keepdim=True) + 1e-6)
         logits = torch.nn.functional.linear(normalized, router.weight, router.bias)
         pre = logits[:, :streams].sigmoid().to(residual.dtype)
-        reference_branch = (pre.unsqueeze(-2) @ residual).squeeze(-2)
+        reference_branch = (pre.unsqueeze(-2) @ residual).squeeze(-2) * 0.7
         branch, _, _ = router(residual)
         torch.testing.assert_close(branch, reference_branch, rtol=0, atol=0)
         expected = route_and_merge()

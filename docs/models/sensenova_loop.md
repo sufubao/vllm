@@ -6,8 +6,9 @@ The `SenseNovaLoopForConditionalGeneration` implementation serves text from
 attention and recurrent caches for every execution of a layer. Optional mHC
 routers retain FP32 weights and use log-space Sinkhorn normalization.
 
-The implementation requires unquantized weights. On NVIDIA GPUs, full decode
-CUDA Graphs can run without Torch compilation; prefill executes eagerly.
+The implementation requires unquantized weights. On NVIDIA GPUs, it defaults to
+full decode CUDA Graphs without Torch compilation; prefill executes eagerly.
+Explicit compilation settings and `--enforce-eager` take precedence.
 It supports tensor parallelism, but not pipeline parallelism, vision, audio,
 LoRA, speculative decoding, learned loop gates, or layer scaling. CPU weight
 offloading is unsupported with shared loop weights: nonzero `--cpu-offload-gb`
@@ -37,6 +38,8 @@ its existing text, loop and mHC settings:
 To override the loop count or mHC settings at startup, pass their complete
 objects through `--hf-overrides`. The execution plan and mHC boundary checks
 are recomputed after overrides; physical checkpoint layers remain unchanged.
+Setting `loop_settings` to `null` runs each physical layer once and retains
+the mHC settings.
 
 ```bash
 --hf-overrides '{"loop_settings":{"start":4,"end":28,"eval_count":3}}'
