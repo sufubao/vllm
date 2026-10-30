@@ -230,3 +230,24 @@ def test_loop_rejects_cpu_offload_before_loading(loop_checkpoint, offload):
             **offload,
         )
         llm.llm_engine.engine_core.shutdown()
+
+
+def test_loop_rejects_invalid_mhc_override_before_loading(loop_checkpoint):
+    settings = SenseNovaLoopConfig.from_pretrained(loop_checkpoint).mhc
+    llm = None
+    try:
+        with pytest.raises(ValueError, match="Invalid mHC pre_scale"):
+            llm = LLM(
+                model=loop_checkpoint,
+                skip_tokenizer_init=True,
+                dtype="bfloat16",
+                enforce_eager=True,
+                max_model_len=32,
+                max_num_seqs=1,
+                gpu_memory_utilization=0.05,
+                kv_cache_memory_bytes=16 * 1024**2,
+                hf_overrides={"mhc": dict(settings, pre_scale=0)},
+            )
+    finally:
+        if llm is not None:
+            llm.llm_engine.engine_core.shutdown()

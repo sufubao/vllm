@@ -159,6 +159,24 @@ def test_loop_config_rejects_mhc_crossing_loop_boundary():
         )
 
 
+@pytest.mark.parametrize("pre_scale", [0, -1, "invalid", None])
+def test_loop_config_rejects_invalid_mhc_scale(pre_scale):
+    from vllm.transformers_utils.configs.sensenova_loop import SenseNovaLoopConfig
+
+    with pytest.raises(ValueError, match="Invalid mHC pre_scale"):
+        SenseNovaLoopConfig(
+            text_config={"num_hidden_layers": 4},
+            mhc={
+                "start": 0,
+                "end": 4,
+                "streams": 2,
+                "iterations": 20,
+                "fixed_identity": False,
+                "pre_scale": pre_scale,
+            },
+        )
+
+
 def test_loop_mhc_routes_and_merges_residual_streams():
     import torch
 

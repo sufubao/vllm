@@ -55,6 +55,15 @@ class SenseNovaLoopConfig(Qwen3_5Config):
         if len(layer_types) != num_layers:
             raise ValueError("layer_types must describe the physical layers")
         if mhc is not None:
+            pre_scale = mhc.get("pre_scale", 1.0)
+            if (
+                not isinstance(pre_scale, (int, float))
+                or not math.isfinite(pre_scale)
+                or pre_scale <= 0
+            ):
+                raise ValueError(
+                    "Invalid mHC pre_scale: expected a positive finite number"
+                )
             mhc_start, mhc_end, streams, iterations = (
                 mhc[k] for k in ("start", "end", "streams", "iterations")
             )
@@ -71,7 +80,6 @@ class SenseNovaLoopConfig(Qwen3_5Config):
                     left <= mhc_start < mhc_end <= right
                     for left, right in zip(bounds, bounds[1:])
                 )
-                or not math.isfinite(mhc.get("pre_scale", 1.0))
             ):
                 raise ValueError(
                     "Invalid mHC settings or range crossing a loop boundary"

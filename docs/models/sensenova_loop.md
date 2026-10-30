@@ -46,7 +46,7 @@ To override the loop count or mHC settings at startup, pass their complete
 objects through `--hf-overrides`. The execution plan and mHC boundary checks
 are recomputed after overrides; physical checkpoint layers remain unchanged.
 Setting `loop_settings` to `null` runs each physical layer once and retains
-the mHC settings.
+the mHC settings. The mHC `pre_scale` must be a positive finite number.
 
 ```bash
 --hf-overrides '{"loop_settings":{"start":4,"end":28,"eval_count":3}}'
